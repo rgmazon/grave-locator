@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient.js';
+import { useNotifications } from './NotificationProvider';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('pending');
@@ -10,6 +11,7 @@ export default function AdminDashboard() {
   const [selectedGrave, setSelectedGrave] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
+  const { add } = useNotifications() || {};
 
   // Check current user and their admin status
   useEffect(() => {
@@ -43,6 +45,95 @@ export default function AdminDashboard() {
     }
   }
 
+  // Fetch graves by status
+  async function fetchGraves(status) {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('graves')
+        .select('id,deceased_name,birth_date,death_date,image_url,status,submitted_by,created_at,location')
+        .eq('status', status)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching graves:', error);
+        add && add('Error loading submissions: ' + error.message, { type: 'error' });
+        setGraves([]);
+        return;
+      }
+
+      // Parse PostGIS POINT if present (string)
+      const parsed = (data || []).map((grave) => {
+        if (grave.location && typeof grave.location === 'string') {
+          const match = grave.location.match(/POINT\(([^ ]+) ([^ ]+)\)/);
+          if (match) {
+            return { ...grave, lng: parseFloat(match[1]), lat: parseFloat(match[2]) };
+          }
+        }
+        return grave;
+      });
+
+      setGraves(parsed);
+    } catch (e) {
+      console.error('Error in fetchGraves:', e);
+      add && add('Error loading submissions: ' + e.message, { type: 'error' });
+      setGraves([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Fetch users
+  async function fetchUsers() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('full_name', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching users:', error);
+        add && add('Error loading users: ' + error.message, { type: 'error' });
+        setUsers([]);
+      } else {
+        setUsers(data || []);
+      }
+    } catch (e) {
+      console.error('Error in fetchUsers:', e);
+      add && add('Error loading users: ' + e.message, { type: 'error' });
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Fetch pending edits
+  async function fetchEdits() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('graves_edits')
+        .select('id,grave_id,proposed_changes,status,submitted_by,created_at')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching edits:', error);
+        add && add('Error fetching edits: ' + error.message, { type: 'error' });
+        setEdits([]);
+      } else {
+        setEdits(data || []);
+      }
+    } catch (e) {
+      console.error('Error in fetchEdits:', e);
+      add && add('Error fetching edits: ' + e.message, { type: 'error' });
+      setEdits([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (activeTab === 'users') {
       fetchUsers();
@@ -53,218 +144,111 @@ export default function AdminDashboard() {
     }
   }, [activeTab]);
 
-  async function fetchGraves(status) {
-    setLoading(true);
-    console.log('Fetching graves with status:', status);
-    
-    // Use rpc to get graves with properly formatted location text
-    const { data, error } = await supabase.rpc('get_graves_by_status', { grave_status: status });
-
-    console.log('Fetch result:', { data, error, status });
-
-    if (error) {
-      console.error("Error fetching graves:", error);
-      
-      // Show detailed RLS error message
-      if (error.message.includes('row-level security') || error.code === 'PGRST301') {
-        alert(`RLS Policy Error: Your admin account cannot view ${status} graves.\n\nThe RLS policies are blocking this query. See the SQL fix below the tabs.`);
-      } else {
-        alert("Error loading submissions: " + error.message + "\n\nPlease check the browser console for details.");
-      }
-      setGraves([]);
-    } else {
-      console.log(`Fetched ${data?.length || 0} graves with status '${status}'`);
-      if (!data || data.length === 0) {
-        console.log(`Note: Query successful but found 0 ${status} graves. Check if submissions exist in database.`);
-      }
-      setGraves(data || []);
-    }
-    setLoading(false);
-  }
-
-  async function fetchUsers() {
-    setLoading(true);
-    console.log('Fetching users...');
-    
-    const { data, error, count } = await supabase
-      .from('profiles')
-      .select('*', { count: 'exact' })
-      .order('full_name', { ascending: true });
-
-    console.log('Fetch users result:', { data, error, count });
-
-    if (error) {
-      console.error("Error fetching users:", error);
-      
-      if (error.message.includes('row-level security') || error.code === 'PGRST301') {
-        alert("RLS Policy Error: Cannot view user profiles.\n\nThe RLS policies are blocking this query. See the SQL fix below the tabs.");
-      } else {
-        alert("Error loading users: " + error.message + "\n\nMake sure RLS policies allow reading the profiles table.");
-      }
-      setUsers([]);
-    } else {
-      console.log(`Fetched ${data?.length || 0} users`);
-      if (count === 0) {
-        console.log('Note: Query successful but found 0 users. Check if profiles exist in database.');
-      }
-      setUsers(data || []);
-    }
-    setLoading(false);
-  }
-
-  async function fetchEdits() {
-    setLoading(true);
-    try {
-      // Use direct fetch to avoid Supabase client timeout issues
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      
-      const response = await fetch(
-        `${supabaseUrl}/rest/v1/graves_edits?select=id,grave_id,proposed_changes,status,submitted_by,created_at&status=eq.pending&order=created_at.desc`,
-        {
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json'
-          }
+  // Realtime subscription: notify admin on new pending submissions
+  useEffect(() => {
+    const subscription = supabase
+      .channel('public:graves')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'graves' }, (payload) => {
+        const newRow = payload.new;
+        if (newRow?.status === 'pending') {
+          add && add(`New submission: ${newRow.deceased_name || 'Unknown'}`, { type: 'info' });
+          // Optionally refresh pending list
+          if (activeTab === 'pending') fetchGraves('pending');
         }
-      );
-      const data = await response.json();
-      console.log('Fetched edits:', data);
-      setEdits(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error('Error fetching edits', e);
-      setEdits([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+      })
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(subscription); } catch (e) { /* ignore */ }
+    };
+  }, [add, activeTab]);
+
+  // Listen for new edit submissions so admins see them immediately
+  useEffect(() => {
+    const sub = supabase
+      .channel('public:graves_edits')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'graves_edits' }, (payload) => {
+        const newRow = payload.new;
+        if (newRow?.status === 'pending') {
+          add && add(`New edit submitted: ${newRow.grave_id}`, { type: 'info' });
+          if (activeTab === 'edits') fetchEdits();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(sub); } catch (e) { /* ignore */ }
+    };
+  }, [add, activeTab]);
 
   async function approveEdit(editId) {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
     try {
-      // Fetch the edit
-      const editResponse = await fetch(
-        `${supabaseUrl}/rest/v1/graves_edits?id=eq.${editId}&select=*`,
-        {
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const edits = await editResponse.json();
-      
-      if (!edits || edits.length === 0) {
-        alert('Failed to load edit');
+      // Load the edit row using Supabase client (applies auth/RLS)
+      const { data: edit, error: fetchError } = await supabase
+        .from('graves_edits')
+        .select('*')
+        .eq('id', editId)
+        .maybeSingle();
+
+      if (fetchError || !edit) {
+        console.error('Failed to load edit', fetchError);
+        add && add('Failed to load edit: ' + (fetchError?.message || 'no data'), { type: 'error' });
         return;
       }
-      
-      const edit = edits[0];
+
       const changes = edit.proposed_changes || {};
-      console.log('Applying changes:', changes, 'to grave:', edit.grave_id);
-      
-      // Apply changes to graves
-      const updateUrl = `${supabaseUrl}/rest/v1/graves?id=eq.${edit.grave_id}`;
-      console.log('PATCH graves URL:', updateUrl);
-      console.log('PATCH graves body:', JSON.stringify(changes));
-      
-      const updateResponse = await fetch(updateUrl, {
-        method: 'PATCH',
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify(changes)
-      });
-      
-      console.log('Graves PATCH response status:', updateResponse.status);
-      
-      if (!updateResponse.ok) {
-        const errorText = await updateResponse.text();
-        console.error('Failed to apply changes:', errorText);
-        alert('Failed to apply changes: ' + errorText);
+      console.log('Applying changes via client:', changes, 'to grave:', edit.grave_id);
+
+      // Apply changes to graves using Supabase client (auth JWT applies)
+      const { error: applyError } = await supabase
+        .from('graves')
+        .update(changes)
+        .eq('id', edit.grave_id);
+
+      if (applyError) {
+        console.error('Failed to apply changes:', applyError);
+        add && add('Failed to apply changes: ' + applyError.message, { type: 'error' });
         return;
       }
-      
-      console.log('Successfully updated grave, now marking edit as approved...');
-      
+
       // Mark edit as approved
-      const markUrl = `${supabaseUrl}/rest/v1/graves_edits?id=eq.${editId}`;
-      const markBody = { 
-        status: 'approved', 
-        reviewed_by: currentUser?.id, 
-        reviewed_at: new Date().toISOString() 
-      };
-      console.log('PATCH edits URL:', markUrl);
-      console.log('PATCH edits body:', JSON.stringify(markBody));
-      
-      const markResponse = await fetch(markUrl, {
-        method: 'PATCH',
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify(markBody)
-      });
-      
-      console.log('Edits PATCH response status:', markResponse.status);
-      
-      if (!markResponse.ok) {
-        const errorText = await markResponse.text();
-        console.error('Failed to mark edit as approved:', errorText);
-        alert('Applied changes but failed to mark edit as approved: ' + errorText);
+      const { error: markError } = await supabase
+        .from('graves_edits')
+        .update({ status: 'approved', reviewed_by: currentUser?.id, reviewed_at: new Date().toISOString() })
+        .eq('id', editId);
+
+      if (markError) {
+        console.error('Failed to mark edit as approved:', markError);
+        add && add('Applied changes but failed to mark edit as approved: ' + markError.message, { type: 'error' });
       } else {
         console.log('Edit approved successfully!');
-        alert('Edit approved and applied to record.');
+        add && add('Edit approved and applied to record.', { type: 'success' });
         fetchEdits();
         fetchGraves(activeTab);
       }
     } catch (e) {
       console.error('Error approving edit:', e);
-      alert('Error approving edit: ' + e.message);
+      add && add('Error approving edit: ' + e.message, { type: 'error' });
     }
   }
 
   async function rejectEdit(editId) {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
     try {
-      const response = await fetch(
-        `${supabaseUrl}/rest/v1/graves_edits?id=eq.${editId}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify({ 
-            status: 'rejected', 
-            reviewed_by: currentUser?.id, 
-            reviewed_at: new Date().toISOString() 
-          })
-        }
-      );
-      
-      if (!response.ok) {
-        alert('Failed to reject edit');
+      const { error } = await supabase
+        .from('graves_edits')
+        .update({ status: 'rejected', reviewed_by: currentUser?.id, reviewed_at: new Date().toISOString() })
+        .eq('id', editId);
+
+      if (error) {
+        console.error('Failed to reject edit:', error);
+        add && add('Failed to reject edit: ' + error.message, { type: 'error' });
       } else {
-        alert('Edit rejected.');
+        add && add('Edit rejected.', { type: 'info' });
         fetchEdits();
       }
     } catch (e) {
       console.error('Error rejecting edit:', e);
-      alert('Error rejecting edit: ' + e.message);
+      add && add('Error rejecting edit: ' + e.message, { type: 'error' });
     }
   }
 
@@ -275,9 +259,9 @@ export default function AdminDashboard() {
       .eq('id', id);
 
     if (error) {
-      alert("Error updating status: " + error.message);
+      add && add("Error updating status: " + error.message, { type: 'error' });
     } else {
-      alert(`Successfully ${newStatus} submission!`);
+      add && add(`Successfully ${newStatus} submission!`, { type: 'success' });
       fetchGraves(activeTab);
     }
   }
@@ -291,9 +275,9 @@ export default function AdminDashboard() {
       .eq('id', id);
 
     if (error) {
-      alert("Error deleting: " + error.message);
+      add && add("Error deleting: " + error.message, { type: 'error' });
     } else {
-      alert('Successfully deleted!');
+      add && add('Successfully deleted!', { type: 'success' });
       fetchGraves(activeTab);
     }
   }
@@ -305,9 +289,9 @@ export default function AdminDashboard() {
       .eq('id', userId);
 
     if (error) {
-      alert("Error updating admin status: " + error.message);
+      add && add("Error updating admin status: " + error.message, { type: 'error' });
     } else {
-      alert('Admin status updated!');
+      add && add('Admin status updated!', { type: 'success' });
       fetchUsers();
     }
   }

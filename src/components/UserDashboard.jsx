@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient.js';
+import { useNotifications } from './NotificationProvider';
 
 export default function UserDashboard({ user }) {
   const [graves, setGraves] = useState([]);
   const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(false);
+  const { add } = useNotifications() || {};
 
   useEffect(() => {
     if (user) fetchMyGraves();
@@ -24,7 +26,7 @@ export default function UserDashboard({ user }) {
       setGraves(data || []);
     } catch (e) {
       console.error('Failed to load graves', e);
-      alert('Error loading your submissions: ' + e.message);
+      add && add('Error loading your submissions: ' + e.message, { type: 'error' });
       setGraves([]);
     } finally {
       setLoading(false);
@@ -47,18 +49,30 @@ export default function UserDashboard({ user }) {
     // Prepare a JSON object with proposed changes
     const proposed = { deceased_name, birth_date, death_date, image_url };
     try {
-      const { error } = await supabase.from('graves_edits').insert([{ 
+      const payload = [{
         grave_id: id,
         proposed_changes: proposed,
         status: 'pending',
         submitted_by: user.id
-      }]);
-      if (error) throw error;
-      alert('Edit submitted for admin review');
+      }];
+
+      console.log('Submitting edit payload:', payload);
+      // Request the inserted row to be returned so we can confirm success
+      const { data, error } = await supabase.from('graves_edits').insert(payload).select('*');
+      console.log('Supabase insert result:', { data, error });
+
+      if (error) {
+        // Provide detailed feedback to help debug RLS / permission issues
+        console.error('Failed to submit edit:', error);
+        add && add('Failed to submit edit: ' + (error.message || JSON.stringify(error)), { type: 'error', duration: 8000 });
+        return;
+      }
+
+      add && add('Edit submitted for admin review', { type: 'success' });
       closeEdit();
     } catch (err) {
       console.error('Failed to submit edit', err);
-      alert('Failed to submit edit for review');
+      add && add('Failed to submit edit for review: ' + (err.message || String(err)), { type: 'error' });
     }
   }
 

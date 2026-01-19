@@ -4,6 +4,7 @@ import AdminDashboard from './components/AdminDashboard';
 import UserDashboard from './components/UserDashboard';
 import AuthModal from './components/AuthModal';
 import { supabase } from './supabaseClient.js';
+import { useNotifications } from './components/NotificationProvider';
 
 function App() {
   // Use state to switch between 'map' and 'admin' views
@@ -85,12 +86,14 @@ function App() {
     }
   }
 
+  const { add } = useNotifications() || {};
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
     setView('map');
-    alert('Signed out successfully');
+    add && add('Signed out successfully', { type: 'success' });
   };
 
   const [menuOpen, setMenuOpen] = useState(false);

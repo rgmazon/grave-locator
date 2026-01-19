@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../supabaseClient.js';
+import { useNotifications } from '../components/NotificationProvider';
 
 export default function GraveSubmission({ selectedCoords, onClear, user, onRequestAuth, onSubmitSuccess }) {
   const [name, setName] = useState('');
@@ -7,12 +8,13 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
   const [deathDate, setDeathDate] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const { add } = useNotifications() || {};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCoords) return;
     if (!user) {
-      alert('Please sign in to submit a grave location');
+      add && add('Please sign in to submit a grave location', { type: 'error' });
       onRequestAuth();
       return;
     }
@@ -40,12 +42,14 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
     if (error) {
       console.error("Submission error:", error);
       if (error.message.includes('row-level security')) {
-        alert("Error: Database policy restricts anonymous submissions.\n\nPlease update your Supabase RLS policy to allow inserts:\n\nCREATE POLICY \"Allow anonymous inserts\" ON graves\nFOR INSERT\nWITH CHECK (status = 'pending');");
+        add && add("Database policy restricts anonymous submissions. Check RLS policies.", { type: 'error' });
+        // Keep the longer guidance in console
+        console.info("Suggested SQL: CREATE POLICY \"Allow anonymous inserts\" ON graves FOR INSERT WITH CHECK (status = 'pending');");
       } else {
-        alert("Error: " + error.message);
+        add && add("Error: " + error.message, { type: 'error' });
       }
     } else {
-      alert("Success! Your submission is waiting for admin approval.");
+      add && add('Success! Submission waiting for admin approval.', { type: 'success' });
       setName('');
       setBirthDate('');
       setDeathDate('');

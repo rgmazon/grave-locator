@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../supabaseClient.js';
+import { useNotifications } from './NotificationProvider';
 
 export default function AuthModal({ onClose, onSuccess }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -8,6 +9,7 @@ export default function AuthModal({ onClose, onSuccess }) {
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const { add } = useNotifications() || {};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,8 +25,8 @@ export default function AuthModal({ onClose, onSuccess }) {
         });
 
         if (error) throw error;
-        
-        alert('Login successful!');
+
+        add && add('Login successful!', { type: 'success' });
         onSuccess(data.user);
       } else {
         // Sign up
@@ -55,7 +57,7 @@ export default function AuthModal({ onClose, onSuccess }) {
           if (profileError) console.error('Profile creation error:', profileError);
         }
 
-        alert('Account created! Please check your email to verify your account.');
+        add && add('Account created! Please check your email to verify your account.', { type: 'success' });
         setIsLogin(true);
       }
     } catch (err) {

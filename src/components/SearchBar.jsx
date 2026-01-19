@@ -1,41 +1,90 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 export default function SearchBar({ graves, onSelectGrave }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredResults, setFilteredResults] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [placeResults, setPlaceResults] = useState([]);
+  const [loadingPlaces, setLoadingPlaces] = useState(false);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     console.log('SearchBar graves:', graves);
   }, [graves]);
 
   useEffect(() => {
+    // Basic grave name search
     if (searchTerm.trim() === '') {
       setFilteredResults([]);
+      setPlaceResults([]);
       setIsOpen(false);
       return;
     }
 
-    console.log('Searching for:', searchTerm, 'in', graves?.length, 'graves');
-    const results = (graves || []).filter(grave =>
-      grave.deceased_name?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    console.log('Search results:', results);
-    setFilteredResults(results);
-    setIsOpen(results.length > 0);
+    const term = searchTerm.toLowerCase();
+    const graveMatches = (graves || []).filter(grave =>
+      grave.deceased_name?.toLowerCase().includes(term)
+    ).map(g => ({ type: 'grave', item: g }));
+
+    setFilteredResults(graveMatches);
+    setIsOpen(graveMatches.length > 0);
+
+    // Debounced place search using Mapbox Geocoding
+    if (!MAPBOX_TOKEN) return;
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        setLoadingPlaces(true);
+        const q = encodeURIComponent(searchTerm);
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${q}.json?access_token=${MAPBOX_TOKEN}&limit=6`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const places = (data.features || []).map((f, idx) => ({
+          id: `place-${f.id || idx}`,
+          place_name: f.place_name,
+          center: f.center // [lng, lat]
+        })).map(p => ({ type: 'place', item: p }));
+
+        setPlaceResults(places);
+        setIsOpen(true);
+      } catch (e) {
+        console.error('Place search error', e);
+      } finally {
+        setLoadingPlaces(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [searchTerm, graves]);
 
-  const handleSelect = (grave) => {
-    onSelectGrave(grave);
+  const handleSelect = (entry) => {
+    // entry: { type: 'grave'|'place', item }
+    if (entry.type === 'grave') {
+      onSelectGrave(entry.item);
+    } else if (entry.type === 'place') {
+      const [lng, lat] = entry.item.center;
+      onSelectGrave({ deceased_name: entry.item.place_name, lng, lat });
+    }
+
     setSearchTerm('');
+    setFilteredResults([]);
+    setPlaceResults([]);
     setIsOpen(false);
   };
 
   const handleClear = () => {
     setSearchTerm('');
     setFilteredResults([]);
+    setPlaceResults([]);
     setIsOpen(false);
   };
+
+  const combinedResults = [...filteredResults, ...placeResults];
 
   return (
     <div className="w-full">
@@ -47,7 +96,7 @@ export default function SearchBar({ graves, onSelectGrave }) {
           </svg>
           <input
             type="text"
-            placeholder="Search by name..."
+            placeholder="Search by name or place..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="flex-1 px-3 py-2.5 bg-transparent outline-none text-sm"
@@ -67,27 +116,32 @@ export default function SearchBar({ graves, onSelectGrave }) {
         {/* Search Results Dropdown */}
         {isOpen && (
           <div className="absolute w-full mt-1 bg-white rounded-md shadow-lg border border-gray-200 max-h-64 overflow-y-auto">
-            {filteredResults.length > 0 ? (
+            {combinedResults.length > 0 ? (
               <ul className="py-1">
-                {filteredResults.map((grave) => (
-                  <li key={grave.id}>
+                {combinedResults.map((entry) => (
+                  <li key={entry.type + '-' + (entry.item.id || entry.item.place_name || entry.item.item)}>
                     <button
-                      onClick={() => handleSelect(grave)}
+                      onClick={() => handleSelect(entry)}
                       className="w-full text-left px-4 py-2 hover:bg-blue-50 transition"
                     >
-                      <div className="font-semibold text-gray-800">
-                        {grave.deceased_name}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {grave.lat.toFixed(5)}, {grave.lng.toFixed(5)}
-                      </div>
+                      {entry.type === 'grave' ? (
+                        <>
+                          <div className="font-semibold text-gray-800">{entry.item.deceased_name}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{entry.item.lat.toFixed(5)}, {entry.item.lng.toFixed(5)}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-semibold text-gray-800">{entry.item.place_name}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">Place</div>
+                        </>
+                      )}
                     </button>
                   </li>
                 ))}
               </ul>
             ) : (
               <div className="px-4 py-6 text-center text-gray-400 text-sm">
-                No results found
+                {loadingPlaces ? 'Searching places...' : 'No results found'}
               </div>
             )}
           </div>
@@ -97,7 +151,7 @@ export default function SearchBar({ graves, onSelectGrave }) {
       {/* Results Count */}
       {searchTerm && (
         <div className="mt-2 px-2 text-xs text-gray-600 bg-white/90 rounded py-1 inline-block">
-          {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''} found
+          {combinedResults.length} result{combinedResults.length !== 1 ? 's' : ''} found
         </div>
       )}
     </div>

@@ -31,6 +31,8 @@ function MapPage({ user, onRequestAuth }) {
   const [selectedGrave, setSelectedGrave] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showSubmission, setShowSubmission] = useState(false);
+  const [showViews, setShowViews] = useState(false);
+  const [mapStyle, setMapStyle] = useState('mapbox://styles/mapbox/satellite-streets-v12');
 
   // Save view state to localStorage whenever it changes
   useEffect(() => {
@@ -112,6 +114,7 @@ function MapPage({ user, onRequestAuth }) {
   const handleMapClick = (e) => {
     setSelectedMarker({ lng: e.lngLat.lng, lat: e.lngLat.lat });
     setSelectedGrave(null); // Close any open popup
+    setShowSubmission(true); // Open the Add Location form automatically
   };
 
   const handleSelectGrave = (grave) => {
@@ -132,7 +135,7 @@ function MapPage({ user, onRequestAuth }) {
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
         onClick={handleMapClick}
-        mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
+        mapStyle={mapStyle}
         mapboxAccessToken={MAPBOX_TOKEN}
         style={{ width: '100%', height: '100%' }}
       >
@@ -213,8 +216,8 @@ function MapPage({ user, onRequestAuth }) {
 
       {/* Floating Controls */}
       <div className="absolute top-3 left-3 right-3 z-10 flex justify-between items-start gap-2 pointer-events-none">
-        {/* Search Panel */}
-        <div className="pointer-events-auto flex-shrink-0">
+        {/* Search + Views Panel */}
+        <div className="pointer-events-auto flex-shrink-0 flex flex-col items-start gap-2">
           {!showSearch ? (
             <button
               onClick={() => setShowSearch(true)}
@@ -240,6 +243,52 @@ function MapPage({ user, onRequestAuth }) {
               </div>
               <div className="p-3">
                 <SearchBar graves={approvedGraves} onSelectGrave={(grave) => { handleSelectGrave(grave); setShowSearch(false); }} />
+              </div>
+            </div>
+          )}
+
+          {/* Views button */}
+          {!showViews ? (
+            <button
+              onClick={() => setShowViews(true)}
+              className="h-10 px-3 bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition flex items-center gap-2 text-sm text-gray-600"
+              title="Map Views"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M3 12h18M3 17h18" />
+              </svg>
+              <span className="hidden sm:inline">Views</span>
+            </button>
+          ) : (
+            <div className="w-48 bg-white rounded-lg shadow-lg border border-gray-200">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                <span className="text-sm font-medium text-gray-900">Map Views</span>
+                <button
+                  onClick={() => setShowViews(false)}
+                  className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-2 space-y-1">
+                <button
+                  onClick={() => { setMapStyle('mapbox://styles/mapbox/satellite-streets-v12'); setShowViews(false); }}
+                  className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 rounded"
+                >Satellite</button>
+                <button
+                  onClick={() => { setMapStyle('mapbox://styles/mapbox/streets-v12'); setShowViews(false); }}
+                  className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 rounded"
+                >Streets</button>
+                <button
+                  onClick={() => { setMapStyle('mapbox://styles/mapbox/outdoors-v12'); setShowViews(false); }}
+                  className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 rounded"
+                >Outdoors</button>
+                <button
+                  onClick={() => { setMapStyle('mapbox://styles/mapbox/dark-v10'); setShowViews(false); }}
+                  className="w-full text-left px-2 py-1 text-sm hover:bg-gray-50 rounded"
+                >Dark</button>
               </div>
             </div>
           )}
