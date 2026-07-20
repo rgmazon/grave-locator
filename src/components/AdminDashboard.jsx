@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient.js';
 import { useNotifications } from './NotificationProvider';
+import { isHttpUrl } from '../lib/url.js';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('pending');
@@ -20,28 +21,17 @@ export default function AdminDashboard() {
 
   async function checkCurrentUser() {
     const { data: { user } } = await supabase.auth.getUser();
-    console.log('Current auth user:', user);
-    
+
     if (user) {
       // Check if user has profile and is admin
-      const { data: profile, error } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single();
-      
-      console.log('User profile:', profile, 'Error:', error);
+
       setCurrentUser(profile);
-      
-      // Get debug info
-      const debugData = {
-        userId: user.id,
-        userEmail: user.email,
-        isAdmin: profile?.is_admin || false,
-        profileExists: !!profile
-      };
-      setDebugInfo(debugData);
-      console.log('Debug info:', debugData);
+      setDebugInfo({ isAdmin: profile?.is_admin || false });
     }
   }
 
@@ -197,7 +187,6 @@ export default function AdminDashboard() {
       }
 
       const changes = edit.proposed_changes || {};
-      console.log('Applying changes via client:', changes, 'to grave:', edit.grave_id);
 
       // Apply changes to graves using Supabase client (auth JWT applies)
       const { error: applyError } = await supabase
@@ -221,7 +210,6 @@ export default function AdminDashboard() {
         console.error('Failed to mark edit as approved:', markError);
         add && add('Applied changes but failed to mark edit as approved: ' + markError.message, { type: 'error' });
       } else {
-        console.log('Edit approved successfully!');
         add && add('Edit approved and applied to record.', { type: 'success' });
         fetchEdits();
         fetchGraves(activeTab);
@@ -316,32 +304,11 @@ export default function AdminDashboard() {
           <p className="text-gray-500 text-sm">Manage submissions and users</p>
         </header>
 
-        {/* Debug Info Banner */}
         {debugInfo && !debugInfo.isAdmin && (
           <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <h3 className="font-bold text-yellow-800 mb-2">⚠️ Admin Access Required</h3>
-            <p className="text-sm text-yellow-700 mb-2">
-              Your account is not marked as admin. You need admin privileges to view submissions.
-            </p>
-            <div className="bg-white rounded p-3 font-mono text-xs text-gray-600 space-y-1">
-              <div><strong>Your User ID:</strong> {debugInfo.userId}</div>
-              <div><strong>Email:</strong> {debugInfo.userEmail}</div>
-              <div><strong>Is Admin:</strong> {debugInfo.isAdmin ? 'Yes ✓' : 'No ✗'}</div>
-              <div><strong>Profile Exists:</strong> {debugInfo.profileExists ? 'Yes ✓' : 'No ✗'}</div>
-            </div>
-            <div className="mt-3 text-sm text-yellow-800">
-              <strong>To fix this:</strong> Run this SQL in your Supabase SQL Editor:
-              <pre className="bg-gray-800 text-green-400 p-2 rounded mt-2 overflow-x-auto">
-                UPDATE profiles SET is_admin = true WHERE id = '{debugInfo.userId}';
-              </pre>
-            </div>
-          </div>
-        )}
-
-        {debugInfo && debugInfo.isAdmin && (
-          <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-3">
-            <p className="text-sm text-green-700">
-              ✓ Logged in as admin: <strong>{debugInfo.userEmail}</strong>
+            <h3 className="font-bold text-yellow-800 mb-2">Admin Access Required</h3>
+            <p className="text-sm text-yellow-700">
+              Your account is not marked as admin. Ask an existing admin to grant you access from the Users tab.
             </p>
           </div>
         )}
@@ -704,7 +671,7 @@ function GraveDetailsModal({ grave, onClose, parseLocation }) {
             </p>
           </div>
 
-          {grave.image_url && (
+          {grave.image_url && isHttpUrl(grave.image_url) && (
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">
                 Photo

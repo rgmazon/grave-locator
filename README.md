@@ -53,7 +53,10 @@ npm run dev
 ## Notes & recommendations
 
 - Some queries use direct Supabase REST fetch calls (instead of the JS client) to avoid timeout/hang issues observed in the environment.
-- Row Level Security (RLS) policies need to be configured before production. During development RLS was relaxed for debugging.
+- Row Level Security (RLS) is enforced at the database level, including on `profiles.is_admin` (only an existing admin can grant admin, never the user themselves) and on `graves_edits`. See `sql/fix-profiles-privilege-escalation.sql`, `sql/fix-graves-rpc-bypass.sql`, and `sql/fix-graves-edits-rls.sql` — run these (after the base `supabase-rls-policies.sql`) in the Supabase SQL Editor before going to production.
+- `graves.image_url` is restricted to `http(s)://` at the DB level (`sql/fix-image-url-scheme.sql`) to prevent a `javascript:` URI submission from executing in an admin's session when reviewing a submission. The frontend also validates this client-side, but the DB constraint is what actually enforces it.
+- Grave submissions are rate-limited to 5 per user per rolling hour via a DB trigger (`sql/fix-graves-rate-limit.sql`), in addition to a client-side submit cooldown.
+- A scheduled GitHub Action (`.github/workflows/keep-supabase-awake.yml`) pings the Supabase REST API every 3 days so the free-tier project doesn't auto-pause from inactivity. Requires `SUPABASE_URL` and `SUPABASE_ANON_KEY` repo secrets (same values as the `.env` vars).
 - Do not commit service role keys. Use env vars and secure secrets in CI/CD.
 
 ## License & contribution

@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import GraveSubmission from './assets/GraveSubmission';
 import SearchBar from './components/SearchBar';
 import { supabase } from './supabaseClient.js';
+import { isHttpUrl } from './lib/url.js';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -46,65 +47,25 @@ function MapPage({ user, onRequestAuth }) {
 
   async function fetchApprovedGraves() {
     try {
-      // Try using RPC function first (if it exists in Supabase)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_graves_by_status', { grave_status: 'approved' });
-      
-      if (!rpcError && rpcData) {
-        console.log('Fetched approved graves via RPC:', rpcData);
-        const parsed = rpcData.map(grave => {
-          const match = grave.location_text?.match(/POINT\(([^ ]+) ([^ ]+)\)/);
-          if (match) {
-            return {
-              ...grave,
-              lng: parseFloat(match[1]),
-              lat: parseFloat(match[2])
-            };
-          }
-          return null;
-        }).filter(Boolean);
-        console.log('Parsed graves with coordinates:', parsed);
-        setApprovedGraves(parsed);
-        return;
-      }
-      
-      // Fallback: Query graves table directly and cast location to text
-      console.log('RPC not available, using fallback direct query');
-      const { data, error } = await supabase
-        .from('graves')
-        .select('id,deceased_name,birth_date,death_date,image_url,status,submitted_by,created_at')
-        .eq('status', 'approved');
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_approved_graves');
 
-      if (error) {
-        console.error('Error fetching approved graves:', error);
+      if (rpcError) {
+        console.error('Error fetching approved graves:', rpcError);
         return;
       }
-      
-      console.log('Fetched graves (direct query):', data);
-      
-      // For each grave, fetch location as text using raw SQL
-      const parsed = [];
-      for (const grave of data || []) {
-        try {
-          // Use raw SQL to get ST_AsText for each grave
-          const { data: locData, error: locError } = await supabase
-            .rpc('get_grave_location', { p_grave_id: grave.id });
-          
-          if (!locError && locData) {
-            const match = locData.match(/POINT\(([^ ]+) ([^ ]+)\)/);
-            if (match) {
-              parsed.push({
-                ...grave,
-                lng: parseFloat(match[1]),
-                lat: parseFloat(match[2])
-              });
-            }
-          }
-        } catch (e) {
-          console.log('Could not get location for grave:', grave.id);
+
+      const parsed = (rpcData || []).map(grave => {
+        const match = grave.location_text?.match(/POINT\(([^ ]+) ([^ ]+)\)/);
+        if (match) {
+          return {
+            ...grave,
+            lng: parseFloat(match[1]),
+            lat: parseFloat(match[2])
+          };
         }
-      }
-      
-      console.log('Parsed graves:', parsed);
+        return null;
+      }).filter(Boolean);
+
       setApprovedGraves(parsed);
     } catch (e) {
       console.error('Error in fetchApprovedGraves:', e);
@@ -194,7 +155,7 @@ function MapPage({ user, onRequestAuth }) {
               )}
 
               {/* Photo */}
-              {selectedGrave.image_url && (
+              {selectedGrave.image_url && isHttpUrl(selectedGrave.image_url) && (
                 <div className="mb-3">
                   <img 
                     src={selectedGrave.image_url} 

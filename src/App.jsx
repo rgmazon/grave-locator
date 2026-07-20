@@ -13,30 +13,21 @@ function App() {
   const [profile, setProfile] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
 
-  // Debug profile state changes
-  useEffect(() => {
-    console.log('Profile state changed:', profile);
-  }, [profile]);
-
   useEffect(() => {
     // Check current session and load profile
     const init = async () => {
-      console.log('Initializing auth...');
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('Session:', session);
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
-        console.log('User found, loading profile for:', currentUser.id);
         await loadProfile(currentUser.id);
       }
     };
-    
+
     init();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      console.log('Auth state change:', _event);
       const currentUser = session?.user ?? null;
       setUser(currentUser);
       if (currentUser) {
@@ -50,14 +41,12 @@ function App() {
   }, []);
 
   async function loadProfile(userId) {
-    console.log('loadProfile called for:', userId);
     try {
-      // Try direct fetch first to test connectivity
+      // Direct REST fetch (instead of the JS client) to avoid timeout/hang
+      // issues observed with supabase.from(...) in this environment.
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      
-      console.log('Trying direct fetch to:', supabaseUrl);
-      
+
       const response = await fetch(
         `${supabaseUrl}/rest/v1/profiles?id=eq.${userId}&select=*`,
         {
@@ -68,18 +57,9 @@ function App() {
           }
         }
       );
-      
-      console.log('Fetch response status:', response.status);
+
       const data = await response.json();
-      console.log('Fetch response data:', data);
-      
-      if (data && data.length > 0) {
-        console.log('Setting profile:', data[0]);
-        setProfile(data[0]);
-      } else {
-        console.log('No profile found');
-        setProfile(null);
-      }
+      setProfile(data && data.length > 0 ? data[0] : null);
     } catch (e) {
       console.error('Error loading profile:', e);
       setProfile(null);
@@ -133,21 +113,18 @@ function App() {
               </button>
             )}
             {profile?.is_admin && (
-              <button 
-                onClick={() => {
-                  console.log('Admin panel clicked, profile:', profile);
-                  setView('admin');
-                }}
+              <button
+                onClick={() => setView('admin')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                  view === 'admin' 
-                    ? 'bg-gray-900 text-white' 
+                  view === 'admin'
+                    ? 'bg-gray-900 text-white'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`}
               >
                 Admin
               </button>
             )}
-            
+
             <div className="w-px h-6 bg-gray-200 mx-2"></div>
             
             {user ? (

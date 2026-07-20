@@ -1,6 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { supabase } from '../supabaseClient.js';
 import { useNotifications } from '../components/NotificationProvider';
+import { isHttpUrl } from '../lib/url.js';
+
+// Client-side submit cooldown. This is only a UX guard against accidental
+// double-submits and impatient re-clicking — the real limit is enforced by
+// the DB trigger in sql/fix-graves-rate-limit.sql, since anything
+// client-side can be bypassed by calling the REST API directly.
+const SUBMIT_COOLDOWN_MS = 10_000;
 
 export default function GraveSubmission({ selectedCoords, onClear, user, onRequestAuth, onSubmitSuccess }) {
   const [name, setName] = useState('');
@@ -8,7 +15,15 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
   const [deathDate, setDeathDate] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [cooldownActive, setCooldownActive] = useState(false);
+  const cooldownTimerRef = useRef(null);
   const { add } = useNotifications() || {};
+
+  const startCooldown = () => {
+    setCooldownActive(true);
+    clearTimeout(cooldownTimerRef.current);
+    cooldownTimerRef.current = setTimeout(() => setCooldownActive(false), SUBMIT_COOLDOWN_MS);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,8 +33,19 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
       onRequestAuth();
       return;
     }
+    if (cooldownActive) {
+      add && add('Please wait a moment before submitting again.', { type: 'error' });
+      return;
+    }
+
+    const trimmedImageUrl = imageUrl.trim();
+    if (trimmedImageUrl && !isHttpUrl(trimmedImageUrl)) {
+      add && add('Photo URL must be a valid http(s) link.', { type: 'error' });
+      return;
+    }
 
     setLoading(true);
+    startCooldown();
 
     // Prepare the data for PostGIS (Geography POINT)
     // IMPORTANT: Longitude comes FIRST in the POINT string
@@ -28,11 +54,11 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
     const { error } = await supabase
       .from('graves')
       .insert([
-        { 
+        {
           deceased_name: name,
           birth_date: birthDate || null,
           death_date: deathDate || null,
-          image_url: imageUrl || null,
+          image_url: trimmedImageUrl || null,
           location: pointString,
           status: 'pending', // Default status for admin review
           submitted_by: user.id
@@ -43,8 +69,8 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
       console.error("Submission error:", error);
       if (error.message.includes('row-level security')) {
         add && add("Database policy restricts anonymous submissions. Check RLS policies.", { type: 'error' });
-        // Keep the longer guidance in console
-        console.info("Suggested SQL: CREATE POLICY \"Allow anonymous inserts\" ON graves FOR INSERT WITH CHECK (status = 'pending');");
+      } else if (error.message.includes('rate limit')) {
+        add && add("You're submitting too quickly. Please try again later.", { type: 'error' });
       } else {
         add && add("Error: " + error.message, { type: 'error' });
       }
@@ -57,7 +83,7 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
       onClear(); // This will remove the marker from the map
       if (onSubmitSuccess) onSubmitSuccess(); // Notify parent to refresh
     }
-    
+
     setLoading(false);
   };
 
@@ -163,12 +189,12 @@ export default function GraveSubmission({ selectedCoords, onClear, user, onReque
             >
               Cancel
             </button>
-            <button 
+            <button
               type="submit"
-              disabled={loading}
+              disabled={loading || cooldownActive}
               className="flex-1 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 text-white text-sm font-medium py-2.5 rounded-md transition"
             >
-              {loading ? 'Submitting...' : 'Submit'}
+              {loading ? 'Submitting...' : cooldownActive ? 'Please wait...' : 'Submit'}
             </button>
           </div>
         </form>
