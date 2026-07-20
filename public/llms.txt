@@ -1,0 +1,21 @@
+# Grave Locator
+
+> A community-driven map for finding and recording grave locations.
+
+Grave Locator lets visitors browse an interactive map of approved grave
+locations and search for a deceased individual by name. Signed-in users can
+pin a location on the map and submit grave details (name, birth/death
+dates, an optional photo) for admin review; submissions appear on the
+public map once approved.
+
+This is a single-page web application: content (grave locations, names,
+dates) is loaded dynamically from a database after the page loads and is
+not present in the static HTML. Grave records are user-submitted and
+admin-moderated, not an authoritative genealogical or cemetery-records
+source.
+
+## Key facts
+
+- Purpose: locate and record physical grave locations on a map.
+- Data: user-submitted, requires admin approval before appearing publicly.
+- No public API; data is only available through the web interface.

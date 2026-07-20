@@ -58,6 +58,7 @@ npm run dev
 - Grave submissions are rate-limited to 5 per user per rolling hour via a DB trigger (`sql/fix-graves-rate-limit.sql`), in addition to a client-side submit cooldown.
 - A scheduled GitHub Action (`.github/workflows/keep-supabase-awake.yml`) pings the Supabase REST API every 3 days so the free-tier project doesn't auto-pause from inactivity. Requires `SUPABASE_URL` and `SUPABASE_ANON_KEY` repo secrets (same values as the `.env` vars).
 - Do not commit service role keys. Use env vars and secure secrets in CI/CD.
+- Basic SEO/AEO: `index.html` has meta description, canonical URL, Open Graph/Twitter cards, and JSON-LD `WebSite` schema; `public/robots.txt`, `public/sitemap.xml`, and `public/llms.txt` are also included. All of these hardcode `https://grave-locator.pages.dev/` — update that domain in `index.html`, `public/robots.txt`, and `public/sitemap.xml` if the deployment URL changes. Note this app is a client-rendered SPA with no per-page routes, so this only covers the site shell — individual grave records aren't independently indexable without adding routing + SSR/prerendering.
 
 ## License & contribution
 
